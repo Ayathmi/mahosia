@@ -5,6 +5,7 @@ import javafx.scene.image.Image;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import org.lwjgl.BufferUtils;
+import org.lwjgl.glfw.GLFWCharCallback;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
@@ -16,7 +17,10 @@ import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.sql.Array;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -41,6 +45,8 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  * </p>
  */
 public class MahoGL {
+    public static final int MAX_PASSES = 32;
+
     private final Consumer<Image> frameConsumer;
     private final Consumer<String> shaderErrConsumer;
     private final BlockingQueue<Runnable> cmdQueue = new LinkedBlockingQueue<>();
@@ -59,7 +65,10 @@ public class MahoGL {
 
     private int vao, vbo, ebo;
 
-    private ShaderProgram shaderProgram;
+    private final List<PassConfig> passes = new ArrayList<>();
+    private final List<Integer> passFbo = new ArrayList<>();
+    private final List<Integer> passTex = new ArrayList<>();
+
     private final Map<Integer, Integer> tex = new HashMap<>();
     private final Map<String, IUniformValue> uniforms = new HashMap<>();
 
@@ -136,20 +145,68 @@ public class MahoGL {
         });
     }
 
-    public void setShader(String vert, String frag) {
+    public void setPass(int index, String vert, String frag) {
         submit(() -> {
+            if (index < 0 || index >= MAX_PASSES) {
+                shaderErrConsumer.accept("[MahoGL] Pass index out of range [0, " + MAX_PASSES + "): " + index);
+                return;
+            }
+
+            if (index > passes.size()) {
+                shaderErrConsumer.accept("[MahoGL] Pass index must be constant.");
+                return;
+            }
+
             try {
                 ShaderProgram sp = ShaderProgram.create(vert, frag);
-                if (shaderProgram != null) {
-                    shaderProgram.dispose();
+                if (index < passes.size()) {
+                    passes.get(index).program.dispose();
+                    passes.get(index).program = sp;
+                } else {
+                    passes.add(new PassConfig(sp));
                 }
 
-                shaderProgram = sp;
+                ensurePassFbo(passes.size());
                 shaderErrConsumer.accept("");
             } catch (Exception e) {
                 shaderErrConsumer.accept(e.getMessage());
             }
         });
+    }
+
+    public void setPassBlend(int index, BlendConfig bl) {
+        submit(() -> {
+            if (index < 0 || index >= passes.size()) {
+                shaderErrConsumer.accept("[MahoGL] Pass blend index invalid:" + index);
+                return;
+            }
+            passes.get(index).setBlend(bl);
+        });
+    }
+
+    public void removePass(int index) {
+        submit(() -> {
+            if (index < 0 || index >= passes.size()) {
+                return;
+            }
+            passes.get(index).program.dispose();
+            passes.remove(index);
+            trimPassFbo(passes.size());
+        });
+    }
+
+    public void clearPasses() {
+        submit(() -> {
+            for (PassConfig p : passes) {
+                p.program.dispose();
+            }
+            passes.clear();
+            trimPassFbo(0);
+        });
+    }
+
+    public int passCount() {
+        return passes.size();
     }
 
     public void setUniform(String id, float v) {
@@ -176,7 +233,9 @@ public class MahoGL {
         try {
             init();
             startNano = System.nanoTime();
-            onReady.run();
+            if (onReady != null) {
+                onReady.run();
+            }
 
             while (isRun.get()) {
                 drainCmd();
@@ -232,27 +291,6 @@ public class MahoGL {
 
         testRendering();
         recreateFb();
-
-        shaderProgram = ShaderProgram.create(
-                getDefaultShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/defaultVert.glsl"),
-                getDefaultShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/defaultFrag.glsl"));
-    }
-
-    private String getDefaultShader(String path) throws IOException {
-        var url = MahoGL.class.getResource(path);
-        if (url == null) {
-            throw new IOException("[MahoGL] Default VertShader not found: " + path);
-        }
-
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(url.openStream(), StandardCharsets.UTF_8))) {
-            StringBuilder content = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line).append('\n');
-            }
-            return content.toString();
-        }
     }
 
     private void testRendering() {
@@ -313,65 +351,167 @@ public class MahoGL {
 
         int res = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (res != GL_FRAMEBUFFER_COMPLETE) {
-            throw new IllegalStateException("[MahoGL] Frame Buffer is incompleted: " + res);
+            throw new IllegalStateException("[MahoGL] Frame buffer is incompleted: " + res);
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    private void ensurePassFbo(int target) {
+        while (passFbo.size() < target) {
+            int texId = glGenTextures();
+            glBindTexture(GL_TEXTURE_2D, texId);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, fbWidth, fbHeight, 0 , GL_RGBA, GL_FLOAT, (ByteBuffer)null);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+            int fb = glGenFramebuffers();
+            glBindFramebuffer(GL_FRAMEBUFFER, fb);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texId, 0);
+
+            int res = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (res != GL_FRAMEBUFFER_COMPLETE) {
+                throw new IllegalStateException("[MahoGL] Pass frame buffer is incompleted: " + res);
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            passFbo.add(fb);
+            passTex.add(texId);
+        }
+    }
+
+    private void trimPassFbo(int target) {
+        while (passFbo.size() > target) {
+            int last = passFbo.size() - 1;
+            glDeleteFramebuffers(passFbo.get(last));
+            glDeleteTextures(passTex.get(last));
+            passFbo.remove(last);
+            passTex.remove(last);
+        }
+    }
+
+    private void recreatePassFbo() {
+        for (int i = 0; i < passTex.size(); i++) {
+            glDeleteTextures(passTex.get(i));
+            glDeleteFramebuffers(passFbo.get(i));
+
+            int texId = glGenTextures();
+            glBindTexture(GL_TEXTURE_2D, texId);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, fbWidth, fbHeight, 0, GL_RGBA, GL_FLOAT, (ByteBuffer)null);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+            int fb = glGenFramebuffers();
+            glBindFramebuffer(GL_FRAMEBUFFER, fb);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texId, 0);
+
+            int res = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (res != GL_FRAMEBUFFER_COMPLETE) {
+                throw new IllegalStateException("[MahoGL] Pass frame buffer is incompleted: " + res);
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            passFbo.set(i, fb);
+            passTex.set(i, texId);
+        }
+    }
+
     private void renderFrame() {
-        glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-        glViewport(0, 0, fbWidth, fbHeight);
+        int n = passes.size();
 
-        glClearColor(0.22f, 0.22f, 0.22f, 1f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        if (n == 0) {
+            glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+            glViewport(0, 0, fbWidth, fbWidth);
+            glDisable(GL_COLOR_BUFFER_BIT);
+            glClearColor(0f, 0f, 0f, 0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glFlush();
+            return;
+        }
 
-        if (shaderProgram != null) {
-            shaderProgram.use();
+        float t = (System.nanoTime() - startNano) / 1_000_000_000.0f;
+        for (int i = 0; i < n; i++) {
+            PassConfig pass = passes.get(i);
+            glBindFramebuffer(GL_FRAMEBUFFER, passFbo.get(i));
+            glViewport(0, 0, fbWidth, fbHeight);
 
-            float t = (System.nanoTime() - startNano) / 1_000_000_000.0f;
+            BlendConfig bc = pass.blend;
+            if (bc != null && bc.enabled && i > 0) {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, passFbo.get(i - 1));
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, passFbo.get(i));
+                glBlitFramebuffer(0, 0, fbWidth, fbHeight,
+                        0, 0, fbWidth, fbHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-            shaderProgram.setUniform("uTime", t);
-            shaderProgram.setUniform("uFrame", (float)frameIdx);
-            shaderProgram.setUniform("uRes", fbWidth, fbHeight);
-            applyUniform();
+                glEnable(GL_BLEND);
+                glBlendEquation(bc.equation);
+                glBlendFunc(bc.srcFactor, bc.dstFactor);
+            } else {
+                glDisable(GL_BLEND);
+                glClearColor(0f, 0f, 0f, 0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+            }
+
+            pass.program.use();
+            pass.program.setUniform("uTime", t);
+            pass.program.setUniform("uFrame", (float)frameIdx);
+            pass.program.setUniform("uRes", (float)fbWidth, (float)fbHeight);
+
+            int texUnit = 0;
+            for (int j = 0; j < i; j++) {
+                glActiveTexture(GL_TEXTURE0 + texUnit);
+                glBindTexture(GL_TEXTURE_2D, passTex.get(j));
+                pass.program.setUniform("uPass" + j, texUnit);
+                texUnit++;
+            }
+
+            applyUniform(pass.program, texUnit);
 
             glBindVertexArray(vao);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
             glBindVertexArray(0);
         }
 
+        glDisable(GL_BLEND);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, passFbo.get(n - 1));
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBuffer);
+        glBlitFramebuffer(0, 0, fbWidth, fbHeight, 0, 0, fbWidth, fbHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glFlush();
     }
 
-    private void applyUniform() {
-        int texUnit = 0;
+    private void applyUniform(ShaderProgram prog, int startTexUnit) {
+        int texUnit = startTexUnit;
 
         for (Map.Entry<String, IUniformValue> entry : uniforms.entrySet()) {
             String id = entry.getKey();
             IUniformValue v = entry.getValue();
 
             if (v instanceof Uniform.FloatUniform) {
-                Uniform.FloatUniform u = (Uniform.FloatUniform)v;
-                shaderProgram.setUniform(id, u.value);
+                Uniform.FloatUniform u = (Uniform.FloatUniform) v;
+                prog.setUniform(id, u.value);
             } else if (v instanceof Uniform.Vec2Uniform) {
-                Uniform.Vec2Uniform u = (Uniform.Vec2Uniform)v;
-                shaderProgram.setUniform(id, u.x, u.y);
+                Uniform.Vec2Uniform u = (Uniform.Vec2Uniform) v;
+                prog.setUniform(id, u.x, u.y);
             } else if (v instanceof Uniform.Vec3Uniform) {
-                Uniform.Vec3Uniform u = (Uniform.Vec3Uniform)v;
-                shaderProgram.setUniform(id, u.x, u.y, u.z);
+                Uniform.Vec3Uniform u = (Uniform.Vec3Uniform) v;
+                prog.setUniform(id, u.x, u.y, u.z);
             } else if (v instanceof Uniform.Vec4Uniform) {
-                Uniform.Vec4Uniform u = (Uniform.Vec4Uniform)v;
-                shaderProgram.setUniform(id, u.x, u.y, u.z, u.w);
+                Uniform.Vec4Uniform u = (Uniform.Vec4Uniform) v;
+                prog.setUniform(id, u.x, u.y, u.z, u.w);
             } else if (v instanceof Uniform.TexUniform) {
-                Uniform.TexUniform u = (Uniform.TexUniform)v;
+                Uniform.TexUniform u = (Uniform.TexUniform) v;
                 Integer glTex = tex.get(u.texId);
 
                 if (glTex != null) {
                     glActiveTexture(GL_TEXTURE0 + texUnit);
                     glBindTexture(GL_TEXTURE_2D, glTex);
-                    shaderProgram.setUniform(id, texUnit);
+                    prog.setUniform(id, texUnit);
                     texUnit++;
                 }
             }
@@ -450,10 +590,12 @@ public class MahoGL {
         tex.clear();
         uniforms.clear();
 
-        if (shaderProgram != null) {
-            shaderProgram.dispose();
-            shaderProgram = null;
+        for (PassConfig p : passes) {
+            if (p != null && p.program != null) {
+                p.program.dispose();
+            }
         }
+        passes.clear();
 
         if (frameBufferTex != 0) {
             glDeleteTextures(frameBufferTex);

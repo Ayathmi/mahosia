@@ -98,11 +98,6 @@ public class MahoCanvas extends StackPane {
         renderer.texRemove(texId);
     }
 
-    public void setShader(String vert, String frag) {
-        shaderError.set("");
-        renderer.setShader(vert, frag);
-    }
-
     public void setUniform(String id, float value) {
         renderer.setUniform(id, value);
     }
@@ -121,6 +116,27 @@ public class MahoCanvas extends StackPane {
 
     public void setUniform(String id, int texId) {
         renderer.setUniform(id, texId);
+    }
+
+    public void setPass(int index, String vert, String frag) {
+        shaderError.set("");
+        renderer.setPass(index, vert, frag);
+    }
+
+    public void setPassBlend(int index, BlendConfig blend) {
+        renderer.setPassBlend(index, blend);
+    }
+
+    public void removePass(int index) {
+        renderer.removePass(index);
+    }
+
+    public void clearPasses() {
+        renderer.clearPasses();
+    }
+
+    public int passCount() {
+        return renderer.passCount();
     }
 
     public ReadOnlyStringProperty shaderErrProperty() {

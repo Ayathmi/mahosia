@@ -4,6 +4,7 @@ layout(location = 0) in vec2 aPos;
 layout(location = 1) in vec2 aUv;
 
 out vec2 vUv;
+uniform float uTime;
 
 void main() {
     vUv = aUv;

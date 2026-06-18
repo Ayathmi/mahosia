@@ -7,6 +7,7 @@ module mahosia {
     requires org.lwjgl.opengl;
     requires org.lwjgl.glfw;
     requires org.lwjgl.stb;
+    requires java.sql;
 
     exports com.aliceprotocol.mahosia.mahoapp;
     exports com.aliceprotocol.mahosia.mahoui.mahocanvas;
