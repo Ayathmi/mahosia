@@ -11,7 +11,8 @@
             xmlns:fx="http://javafx.com/fxml"
             fx:controller="com.aliceprotocol.mahosia.mahoapp.MahosiaController"
             prefHeight="1024.0" prefWidth="1024.0">
-    <MahoCanvas AnchorPane.topAnchor="0"
+    <MahoCanvas fx:id="mahoCanvas"
+                AnchorPane.topAnchor="0"
                 AnchorPane.bottomAnchor="0"
                 AnchorPane.leftAnchor="0"
                 AnchorPane.rightAnchor="0"/>

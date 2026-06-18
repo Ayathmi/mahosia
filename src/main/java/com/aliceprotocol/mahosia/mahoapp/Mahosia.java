@@ -17,5 +17,7 @@ public class Mahosia extends Application {
         var scene = new Scene(fxml.load());
         primaryStage.setScene(scene);
         primaryStage.show();
+
+        scene.getRoot();
     }
 }

@@ -1,6 +1,10 @@
 package com.aliceprotocol.mahosia.mahoui.mahocanvas;
 
 import javafx.application.Platform;
+import javafx.beans.InvalidationListener;
+import javafx.beans.property.ReadOnlyBooleanProperty;
+import javafx.beans.property.ReadOnlyBooleanWrapper;
+import javafx.beans.value.ChangeListener;
 import javafx.scene.layout.StackPane;
 
 import javafx.beans.property.ReadOnlyStringProperty;
@@ -27,6 +31,7 @@ public class MahoCanvas extends StackPane {
 
     private final Canvas canvas;
     private final ReadOnlyStringWrapper shaderError = new ReadOnlyStringWrapper("");
+    private final ReadOnlyBooleanWrapper rendererReady = new ReadOnlyBooleanWrapper(false);
 
     private final MahoGL renderer;
 
@@ -53,7 +58,8 @@ public class MahoCanvas extends StackPane {
             }
         });
 
-        this.renderer = new MahoGL(this::presentFrame, this::onShaderErr);
+        this.renderer = new MahoGL(this::presentFrame, this::onShaderErr,
+                () -> Platform.runLater(() -> rendererReady.set(true)));
     }
 
     public void start() {
@@ -123,6 +129,14 @@ public class MahoCanvas extends StackPane {
 
     public String getShaderErr() {
         return shaderError.get();
+    }
+
+    public void onShaderErr(Exception e) {
+        onShaderErr(e.getMessage());
+    }
+
+    public ReadOnlyBooleanProperty rendererReadyProperty(){
+        return rendererReady.getReadOnlyProperty();
     }
 
     private void requestResize() {

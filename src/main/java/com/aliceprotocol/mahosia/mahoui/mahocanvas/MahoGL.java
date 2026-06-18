@@ -45,6 +45,7 @@ public class MahoGL {
     private final Consumer<String> shaderErrConsumer;
     private final BlockingQueue<Runnable> cmdQueue = new LinkedBlockingQueue<>();
     private final AtomicBoolean isRun = new AtomicBoolean(false);
+    private final Runnable onReady;
 
     private Thread renderThread;
     private long windowPtr;
@@ -66,9 +67,10 @@ public class MahoGL {
     private long startNano;
     private int frameIdx;
 
-    public MahoGL(Consumer<Image> frameConsumer, Consumer<String> shaderErrConsumer) {
+    public MahoGL(Consumer<Image> frameConsumer, Consumer<String> shaderErrConsumer, Runnable onReady) {
         this.frameConsumer = frameConsumer;
         this.shaderErrConsumer = shaderErrConsumer;
+        this.onReady = onReady;
     }
 
     public void start() {
@@ -174,6 +176,7 @@ public class MahoGL {
         try {
             init();
             startNano = System.nanoTime();
+            onReady.run();
 
             while (isRun.get()) {
                 drainCmd();
