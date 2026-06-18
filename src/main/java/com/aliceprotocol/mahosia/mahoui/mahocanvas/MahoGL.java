@@ -5,19 +5,14 @@ import javafx.scene.image.Image;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import org.lwjgl.BufferUtils;
-import org.lwjgl.glfw.GLFWCharCallback;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.sql.Array;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -355,6 +350,7 @@ public class MahoGL {
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        recreatePassFbo();
     }
 
     private void ensurePassFbo(int target) {
@@ -425,8 +421,8 @@ public class MahoGL {
 
         if (n == 0) {
             glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-            glViewport(0, 0, fbWidth, fbWidth);
-            glDisable(GL_COLOR_BUFFER_BIT);
+            glViewport(0, 0, fbWidth, fbHeight);
+            glDisable(GL_BLEND);
             glClearColor(0f, 0f, 0f, 0f);
             glClear(GL_COLOR_BUFFER_BIT);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);

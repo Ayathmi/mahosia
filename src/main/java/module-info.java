@@ -11,6 +11,9 @@ module mahosia {
 
     exports com.aliceprotocol.mahosia.mahoapp;
     exports com.aliceprotocol.mahosia.mahoui.mahocanvas;
+    exports com.aliceprotocol.mahosia.mahomodel;
+    exports com.aliceprotocol.mahosia.mahovm;
 
     opens com.aliceprotocol.mahosia.mahoapp to javafx.fxml;
+    opens com.aliceprotocol.mahosia.mahovm to javafx.fxml;
 }

@@ -1,10 +1,8 @@
 package com.aliceprotocol.mahosia.mahoui.mahocanvas;
 
 import javafx.application.Platform;
-import javafx.beans.InvalidationListener;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
-import javafx.beans.value.ChangeListener;
 import javafx.scene.layout.StackPane;
 
 import javafx.beans.property.ReadOnlyStringProperty;

@@ -1,19 +1,69 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
-<?import java.lang.*?>
-<?import java.util.*?>
-<?import javafx.scene.*?>
-<?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
-
+<?import javafx.scene.control.*?>
 <?import com.aliceprotocol.mahosia.mahoui.mahocanvas.MahoCanvas?>
-<AnchorPane xmlns="http://javafx.com/javafx"
+
+<BorderPane xmlns="http://javafx.com/javafx"
             xmlns:fx="http://javafx.com/fxml"
             fx:controller="com.aliceprotocol.mahosia.mahoapp.MahosiaController"
-            prefHeight="1024.0" prefWidth="1024.0">
-    <MahoCanvas fx:id="mahoCanvas"
-                AnchorPane.topAnchor="0"
-                AnchorPane.bottomAnchor="0"
-                AnchorPane.leftAnchor="0"
-                AnchorPane.rightAnchor="0"/>
-</AnchorPane>
+            prefWidth="1400" prefHeight="900">
+
+    <left>
+        <ScrollPane fitToWidth="true" prefWidth="380" minWidth="380" maxWidth="380">
+            <VBox spacing="10" style="-fx-padding: 10">
+
+                <TitledPane text="Textures" collapsible="true">
+                    <VBox spacing="5">
+                        <ListView fx:id="textureList" prefHeight="120"/>
+                        <HBox spacing="5">
+                            <Button text="Add..." onAction="#onAddTexture"/>
+                            <Button text="Remove" onAction="#onRemoveTexture"/>
+                        </HBox>
+                    </VBox>
+                </TitledPane>
+
+                <TitledPane text="Shader Passes" collapsible="true">
+                    <VBox spacing="5">
+                        <ListView fx:id="passList" prefHeight="150"/>
+                        <HBox spacing="5">
+                            <Button text="Add..." onAction="#onAddPass"/>
+                            <Button text="Remove" onAction="#onRemovePass"/>
+                            <Button text="Up" onAction="#onMovePassUp"/>
+                            <Button text="Down" onAction="#onMovePassDown"/>
+                        </HBox>
+                    </VBox>
+                </TitledPane>
+
+                <TitledPane text="Uniforms" collapsible="true">
+                    <VBox spacing="5">
+                        <VBox fx:id="uniformBox" spacing="5"/>
+                        <HBox spacing="5">
+                            <Button text="Add..." onAction="#onAddUniform"/>
+                            <Button text="Remove" onAction="#onRemoveUniform"/>
+                        </HBox>
+                    </VBox>
+                </TitledPane>
+
+                <TitledPane text="Tweens" collapsible="true">
+                    <VBox spacing="5">
+                        <ListView fx:id="tweenList" prefHeight="120"/>
+                        <HBox spacing="5">
+                            <Button text="Add Tween..." onAction="#onAddTween"/>
+                            <Button text="Remove" onAction="#onRemoveTween"/>
+                        </HBox>
+                    </VBox>
+                </TitledPane>
+
+                <Label fx:id="errorLabel" style="-fx-text-fill: red" wrapText="true"/>
+            </VBox>
+        </ScrollPane>
+    </left>
+
+    <center>
+        <AnchorPane>
+            <MahoCanvas fx:id="mahoCanvas"
+                        AnchorPane.topAnchor="0" AnchorPane.bottomAnchor="0"
+                        AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0"/>
+        </AnchorPane>
+    </center>
+</BorderPane>

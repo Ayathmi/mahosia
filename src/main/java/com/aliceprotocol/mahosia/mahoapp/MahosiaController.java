@@ -1,129 +1,161 @@
 package com.aliceprotocol.mahosia.mahoapp;
 
+import com.aliceprotocol.mahosia.mahomodel.*;
+import com.aliceprotocol.mahosia.mahovm.*;
 import com.aliceprotocol.mahosia.mahoui.mahocanvas.MahoCanvas;
+import com.aliceprotocol.mahosia.mahovm.tweening.TweenEngine;
+import javafx.collections.ListChangeListener;
 import javafx.fxml.FXML;
-import javafx.scene.control.Control;
+import javafx.scene.control.*;
+import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URL;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Random;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.Optional;
 
 public class MahosiaController {
-    @FXML
-    public MahoCanvas mahoCanvas;
 
-    private int texId;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "MahoController");
-        t.setDaemon(true);
-        return t;
-    });
+    @FXML public MahoCanvas mahoCanvas;
+    @FXML public ListView<TextureEntry> textureList;
+    @FXML public ListView<ShaderPassEntry> passList;
+    @FXML public ListView<TweenEngine.ActiveTween> tweenList;
+    @FXML public VBox uniformBox;
+    @FXML public Label errorLabel;
+
+    private MahosiaVM vm;
+    private TweenEngine tweenEngine;
 
     @FXML
-    private void initialize() throws InterruptedException {
-        mahoCanvas.rendererReadyProperty().addListener((obs, was, isReady) -> {
-            if (!isReady) {
-                return;
-            }
-            setupScene();
+    private void initialize() {
+        mahoCanvas.rendererReadyProperty().addListener((obs, was, ready) -> {
+            if (!ready) return;
+            vm = new MahosiaVM(mahoCanvas);
+            tweenEngine = new TweenEngine(vm);
+            tweenEngine.start();
+            bindUI();
         });
-
     }
 
-    private int uniformCycleIndex = 0;
+    private void bindUI() {
+        textureList.setItems(vm.getTextures());
+        passList.setItems(vm.getPasses());
+        tweenList.setItems(tweenEngine.getActiveTweens());
+        errorLabel.textProperty().bind(vm.shaderErrorProperty());
 
-    private static final int UNIFORM_CYCLE_COUNT = 15;
+        vm.getUniforms().addListener((ListChangeListener<UniformEntry>) change -> rebuildUniformBox());
+    }
 
-    private void setupScene() {
+    private void rebuildUniformBox() {
+        uniformBox.getChildren().clear();
+        for (UniformEntry entry : vm.getUniforms()) {
+            uniformBox.getChildren().add(UniformEditorBuilder.build(entry, vm));
+        }
+    }
+
+    @FXML
+    private void onAddTexture() {
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Select Texture Image");
+        fc.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("Images", "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tga"));
+        File file = fc.showOpenDialog(mahoCanvas.getScene().getWindow());
+        if (file != null) {
+            vm.loadTexture(file.toPath());
+        }
+    }
+
+    @FXML
+    private void onRemoveTexture() {
+        TextureEntry sel = textureList.getSelectionModel().getSelectedItem();
+        if (sel != null) vm.removeTexture(sel);
+    }
+
+    @FXML
+    private void onAddPass() {
+        FileChooser fc = new FileChooser();
+        fc.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("GLSL Shaders", "*.glsl", "*.frag", "*.vert"));
+
+        fc.setTitle("Select Vertex Shader");
+        File vertFile = fc.showOpenDialog(mahoCanvas.getScene().getWindow());
+        if (vertFile == null) return;
+
+        fc.setTitle("Select Fragment Shader");
+        File fragFile = fc.showOpenDialog(mahoCanvas.getScene().getWindow());
+        if (fragFile == null) return;
+
         try {
-            String vert = loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass.vert.glsl");
-
-            mahoCanvas.setPass(0, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_0_copy.frag.glsl"));
-            mahoCanvas.setPass(1, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_1_distort.frag.glsl"));
-            mahoCanvas.setPass(2, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_2_tear.frag.glsl"));
-            mahoCanvas.setPass(3, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_3_mix.frag.glsl"));
-            mahoCanvas.setPass(4, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_4_chroma.frag.glsl"));
-            mahoCanvas.setPass(5, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_5_flash.frag.glsl"));
-            mahoCanvas.setPass(6, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_6_scanline.frag.glsl"));
-            mahoCanvas.setPass(7, vert, loadShader("/com.aliceprotocol.mahosia/mahoui/mahocanvas/glitchshader/pass_7_noise_vignette.frag.glsl"));
-
-            URL texUrl = getClass().getResource("/com.aliceprotocol.mahosia/mahoasset/fallback_test_tex.png");
-            if (texUrl == null) throw new IOException("[MahoCanvas - Controller]Test texture not found.");
-            Path tmp = Files.createTempFile("mahosia_test_", ".png");
-            Files.copy(texUrl.openStream(), tmp, StandardCopyOption.REPLACE_EXISTING);
-            texId = mahoCanvas.textureLoad(tmp);
-            mahoCanvas.setUniform("uTex", texId);
-
-            mahoCanvas.setUniform("uDistortAmount",0f);
-            mahoCanvas.setUniform("uTearAmount", 0f);
-            mahoCanvas.setUniform("uTearFrequency", 0f);
-            mahoCanvas.setUniform("uMixWeight0", 0.45f);
-            mahoCanvas.setUniform("uMixWeight1", 0.25f);
-            mahoCanvas.setUniform("uMixWeight2", 0.3f);
-            mahoCanvas.setUniform("uChromaAmount", 0f);
-            mahoCanvas.setUniform("uFlashAmount", 0f);
-            mahoCanvas.setUniform("uFlashSize", 0f);
-            mahoCanvas.setUniform("uFlashSpeed", 0f);
-            mahoCanvas.setUniform("uScanlineAmount", 0f);
-            mahoCanvas.setUniform("uNoiseAmount", 0f);
-            mahoCanvas.setUniform("uVignetteAmount", 0.033f);
-            mahoCanvas.setUniform("uVignetteFalloff", 0.128f);
-
-            scheduler.scheduleAtFixedRate(this::pushAllUniforms, 5, 2, TimeUnit.SECONDS);
-
+            String vertSrc = Files.readString(vertFile.toPath(), StandardCharsets.UTF_8);
+            String fragSrc = Files.readString(fragFile.toPath(), StandardCharsets.UTF_8);
+            String label = fragFile.getName();
+            vm.addPass(vertSrc, fragSrc, label);
         } catch (Exception e) {
-            mahoCanvas.onShaderErr(e);
+            errorLabel.setText(e.getMessage());
         }
     }
 
-    private void pushAllUniforms() {
-        var r = new Random();
-
-        switch (uniformCycleIndex) {
-            case 0: mahoCanvas.setUniform("uTex", texId); break;
-            case 1:  mahoCanvas.setUniform("uDistortAmount", 0.05f + r.nextFloat() * 0.25f); break;
-            case 2:  mahoCanvas.setUniform("uTearAmount", 0.01f + r.nextFloat() * 0.10f); break;
-            case 3:  mahoCanvas.setUniform("uTearFrequency", 0.05f + r.nextFloat() * 0.50f); break;
-            case 4:  mahoCanvas.setUniform("uMixWeight0", 0.15f + r.nextFloat() * 0.35f); break;
-            case 5:  mahoCanvas.setUniform("uMixWeight1", 0.15f + r.nextFloat() * 0.35f); break;
-            case 6:  mahoCanvas.setUniform("uMixWeight2", 0.15f + r.nextFloat() * 0.35f); break;
-            case 7:  mahoCanvas.setUniform("uChromaAmount", 0.0005f + r.nextFloat() * 0.006f); break;
-            case 8:  mahoCanvas.setUniform("uFlashAmount", 0.10f + r.nextFloat() * 0.60f); break;
-            case 9:  mahoCanvas.setUniform("uFlashSize", 0.03f + r.nextFloat() * 0.20f); break;
-            case 10:  mahoCanvas.setUniform("uFlashSpeed", 2.0f + r.nextFloat() * 12.0f); break;
-            case 11: mahoCanvas.setUniform("uScanlineAmount", 0.20f + r.nextFloat() * 0.60f); break;
-            case 12: mahoCanvas.setUniform("uNoiseAmount", 0.01f + r.nextFloat() * 0.10f); break;
-            case 13: mahoCanvas.setUniform("uVignetteAmount", 0.30f + r.nextFloat() * 0.60f); break;
-            case 14: mahoCanvas.setUniform("uVignetteFalloff", 0.8f + r.nextFloat() * 3.0f); break;
-        }
-
-        uniformCycleIndex = (uniformCycleIndex + 1) % UNIFORM_CYCLE_COUNT;
+    @FXML
+    private void onRemovePass() {
+        int idx = passList.getSelectionModel().getSelectedIndex();
+        if (idx >= 0) vm.removePass(idx);
     }
 
-    public String loadShader(String path) throws IOException {
-        var url = getClass().getResource(path);
-        if (url == null) {
-            throw new IOException("[MahoCanvas - Controller] Shader not found: " + path);
+    @FXML
+    private void onMovePassUp() {
+        int idx = passList.getSelectionModel().getSelectedIndex();
+        vm.movePassUp(idx);
+        passList.getSelectionModel().select(idx - 1);
+    }
+
+    @FXML
+    private void onMovePassDown() {
+        int idx = passList.getSelectionModel().getSelectedIndex();
+        vm.movePassDown(idx);
+        passList.getSelectionModel().select(idx + 1);
+    }
+
+    @FXML
+    private void onAddUniform() {
+        Optional<UniformEntry> result = UniformAddDialog.show();
+        result.ifPresent(entry -> vm.addUniform(entry.getId(), entry.getType(), entry.getValues()));
+    }
+
+    @FXML
+    private void onRemoveUniform() {
+        if (uniformBox.getChildren().isEmpty()) return;
+        int lastIdx = vm.getUniforms().size() - 1;
+        if (lastIdx >= 0) {
+            vm.getUniforms().remove(lastIdx);
+        }
+    }
+
+    @FXML
+    private void onAddTween() {
+        if (vm.getUniforms().isEmpty()) {
+            errorLabel.setText("Please add at least one uniform first.");
+            return;
         }
 
-        try (var reader = new BufferedReader(
-                new InputStreamReader(url.openStream(), StandardCharsets.UTF_8))) {
-            var builder = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                builder.append(line).append('\n');
+        Optional<TweenConfig> result = TweenDialog.show(vm.getUniforms());
+        result.ifPresent(config -> {
+            UniformEntry target = null;
+            for (UniformEntry e : vm.getUniforms()) {
+                if (e.getId().equals(config.getUniformId())) {
+                    target = e;
+                    break;
+                }
             }
-            return builder.toString();
-        }
+            if (target != null && target.getType() != UniformType.TEX) {
+                tweenEngine.addTween(config, target);
+            }
+        });
+    }
+
+    @FXML
+    private void onRemoveTween() {
+        TweenEngine.ActiveTween sel = tweenList.getSelectionModel().getSelectedItem();
+        if (sel != null) tweenEngine.removeTween(sel);
     }
 }

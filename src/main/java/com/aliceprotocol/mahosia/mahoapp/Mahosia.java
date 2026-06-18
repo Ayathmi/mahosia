@@ -16,8 +16,7 @@ public class Mahosia extends Application {
         var fxml = new FXMLLoader(url);
         var scene = new Scene(fxml.load());
         primaryStage.setScene(scene);
+        primaryStage.setTitle("Mahosia");
         primaryStage.show();
-
-        scene.getRoot();
     }
 }
